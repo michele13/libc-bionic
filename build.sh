@@ -6,16 +6,20 @@ topdir="`pwd`/android_build"
 
 googlebaseurl='https://android.googlesource.com/platform'
 
-sources=('bionic' 'libnativehelper' 'build' 'build/kati' 'system/core' 'system/extras' 'external/jemalloc' 'external/libcxx' 'external/libcxxabi' 'external/elfutils'
-         'external/llvm' 'external/libunwind_llvm' 'external/compiler-rt' 'external/safe-iop' 'external/google-benchmark' 'external/gtest' 'external/tinyxml2')
-: ${buildref='nougat-release'}
+sources=('bionic' 'libnativehelper' 'build' 'build/soong' 'build/blueprint' 'build/kati' 'system/core' 'system/extras' 'external/jemalloc' 'external/libcxx' 'external/libcxxabi' 'external/elfutils' 'external/golang-protobuf'
+         'external/llvm' 'external/libunwind_llvm' 'external/compiler-rt' 'external/google-benchmark' 'external/tinyxml2')
+: ${buildref='android-10.0.0_r2'}
 : ${arch:=`uname -m`}
 : ${skipsrc:='no'}
 : ${skipndk:='no'}
 # benchmarks are broken right now
 : ${skipbenches:='yes'}
-# zlib is not required for building
-: ${skipzlib:='yes'}
+# zlib IS required for building
+: ${skipzlib:='no'}
+# skip patch apply
+: ${skippatch:='yes'}
+# continue download of sources (or start from scratch)?
+: ${continuedl:='no'}
 ndkarch=$arch
 gccarch=$arch
 luncharch=$arch
@@ -31,25 +35,65 @@ case $arch in
 esac
 
 clangver=3.6
-prebuilts=( "prebuilts/gcc/linux-x86/$gccarch/$abi-$gccver" "prebuilts/gcc/linux-x86/host/`uname -m`-linux-glibc2.15-4.8"
-            'prebuilts/clang/host/linux-x86' 'prebuilts/gcc/linux-x86/host/x86_64-w64-mingw32-4.8' 'prebuilts/ninja/linux-x86' 'prebuilts/misc')
+prebuilts=( "prebuilts/gcc/linux-x86/$gccarch/$abi-$gccver" "prebuilts/gcc/linux-x86/host/`uname -m`-linux-glibc2.17-4.8"
+            'prebuilts/clang/host/linux-x86' 'prebuilts/gcc/linux-x86/host/x86_64-w64-mingw32-4.8' 'prebuilts/misc' 'prebuilts/go/linux-x86'
+            'prebuilts/build-tools' 'prebuilts/vndk/v28')
+
+dl_complete() {
+# is the package in the list of the ones already downloaded?
+grep -q "$1" "$topdir/.dl_done"
+
+# output the exit status of the previous command (0) if successful. This means that the source is already there
+echo $?
+}
+
+# I don't want to restart the script everytime it fails to download something, just keep trying until you succeed
+git_fetch() {
+
+git fetch --depth 1 origin "$2" -q || git_fetch
+
+}
 
 download_from_git () {
+    
+    # Create an empty .dl_done file
+    touch $topdir/.dl_done
+    
+    # we want to be sure that download starts from scratch, 
+    if [ "$continuedl" == "no" ]; then rm "$topdir/.dl_done"; fi
+    
+    # if continuedl is set to 'no' we download everything from zero.
+    # Otherwise we check if the source is already downloaded, if not we proceed
+    if [[ "$continuedl" == "no" || "$(dl_complete $1)" == 1 ]]; then
     echo "downloading $1"
-
-    if [ -d "$topdir/$1" ]
+    
+      if [ -d "$topdir/$1" ]
       then
         rm -rf "$topdir/$1"
-    fi
+      fi
     mkdir -p "$topdir/$1"
     cd "$topdir/$1"
-
+    
+    # checkout of build should be done inside build/make, however I'm lazy so I will make a symlink
+    if [ "$1" = "build" ]
+      then
+      #mkdir -p make
+      #cd make
+      ln -s . make
+    fi  
+    
     git init -q
     git remote add origin "$googlebaseurl/$1"
-    git fetch --depth 1 origin "$2" -q 
+    
+    # I don't want to restart the script everytime it fails to download something, just keep trying until you succeed 
+    #git fetch --depth 1 origin "$2" -q 
+    git_fetch
+    
     git reset --hard FETCH_HEAD -q
 
     cd "$topdir"
+    echo "$1" >> "$topdir/.dl_done"
+    fi
 }
 
 if [ "$skipsrc" == 'no' ]
@@ -64,11 +108,19 @@ for source in "${sources[@]}"
     _buildref="$buildref"
     if [ "$source" == 'external/googletest' ]
       then
-        _buildref='master'
+        _buildref='android-10.0.0_r2'
     fi
 
         download_from_git "$source" "$_buildref"
+        
+        # I'm lazy, complete only if necessary. Disabling
+        #if [ "$source" == 'build' ]
+        #  then
+        #  cp build/make/core/root.mk $topdir/Makefile
+        #  
+        #fi
 done
+
 
 cd "$topdir"
 
@@ -77,10 +129,13 @@ if [[ "$skipbenches" == 'yes' ]]
     find bionic -type d -name 'benchmarks' -exec rm -r {} +
 fi
 
-for patch in $scriptdir/*.patch
-  do
-    patch -f -p1 < "$patch" || true
-done
+if [[ "$skippatch" == 'no' ]]
+  then
+  for patch in $scriptdir/*.patch
+    do
+      patch -f -p1 < "$patch" || true
+    done
+fi
 
 fi
 
@@ -94,6 +149,11 @@ if [ "$skipndk" == 'no' ]
         done
 rm -r prebuilts/misc/common/android-support-test || true
 fi
+
+# We need to put in place some files in order for the build to succeed
+cp build/core/root.mk Makefile
+ln -s build/soong/root.bp Android.bp 2>/dev/null || true
+ln -s build/soong/bootstrap.bash bootstrap.bash 2>/dev/null || true
 
 source build/envsetup.sh
 lunch "aosp_$ndkarch-eng" > /dev/null

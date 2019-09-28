@@ -1,0 +1,24 @@
+CHANGESLOG:
+
+19/09/2019
+- targeting android-10.0.0-r2
+- forcing zlib building
+- skip patch apply
+- added build/soong
+- added build/blueprint
+- removing prebuilts/ninja/linux-x86??
+- removing gtest?
+- removing safe-iop?
+- changing "prebuilts/gcc/linux-x86/host/`uname -m`-linux-glibc2.15-4.8" to "prebuilts/gcc/linux-x86/host/`uname -m`-linux-glibc2.17-4.8" (line 36)
+- changing googletest reference to android-10.0.0_r2
+- fixing checkout of "build"
+- adding prebuilts/go/linux-x86
+- adding external/golang-protobuf
+- sources download will now resume from where it left if an error occurs instead of restarting from scratch
+- added external/nsjail
+- added prebuilts/build-tools
+- added prebuilts/vndk/v28
+
+20/09/2019
+- fixing "build/soong" checkout by placing some required files inside the top of the source tree
+- if the script fails to download something keep trying until you succeeed

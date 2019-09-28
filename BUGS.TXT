@@ -1,0 +1,2 @@
+- the script does not currently work. Build fails.
+- Building bionic from source using a full AOSP repository makes my crappy pc hang.
